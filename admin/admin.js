@@ -85,8 +85,8 @@ function confirmBox(title,msg,ok="Confirmar",danger=false){
 }
 async function busy(btn,fn){if(btn.getAttribute("aria-busy"))return;btn.setAttribute("aria-busy","true");try{return await fn()}catch(e){toast(e.message||"Erro","bad")}finally{btn.removeAttribute("aria-busy")}}
 const icon=p=>`<svg viewBox="0 0 24 24" aria-hidden="true">${p}</svg>`;
-const ICONS={dash:icon('<path d="M3 13h8V3H3zM13 21h8V11h-8zM3 21h8v-6H3zM13 3v6h8V3z"/>'),prod:icon('<path d="M20 7l-8-4-8 4 8 4 8-4zM4 7v10l8 4 8-4V7M12 11v10"/>'),cat:icon('<path d="M4 6h16M4 12h16M4 18h10"/>'),est:icon('<path d="M3 7h18v13H3zM8 7V4h8v3M9 12h6"/>'),ped:icon('<path d="M6 2l-2 4v14h16V6l-2-4zM4 6h16M9 10a3 3 0 006 0"/>'),loja:icon('<path d="M3 9l1-5h16l1 5M3 9a3 3 0 006 0 3 3 0 006 0 3 3 0 006 0M5 21V12M19 21V12M3 21h18"/>')};
-const NAV=[["dashboard","Dashboard","dash"],["produtos","Produtos","prod"],["categorias","Categorias","cat"],["estoque","Estoque","est"],["pedidos","Pedidos","ped"],["loja","Personalizar loja","loja"]];
+const ICONS={dash:icon('<path d="M3 13h8V3H3zM13 21h8V11h-8zM3 21h8v-6H3zM13 3v6h8V3z"/>'),prod:icon('<path d="M20 7l-8-4-8 4 8 4 8-4zM4 7v10l8 4 8-4V7M12 11v10"/>'),cat:icon('<path d="M4 6h16M4 12h16M4 18h10"/>'),est:icon('<path d="M3 7h18v13H3zM8 7V4h8v3M9 12h6"/>'),ped:icon('<path d="M6 2l-2 4v14h16V6l-2-4zM4 6h16M9 10a3 3 0 006 0"/>'),pdv:icon('<path d="M3 4h18v12H3zM8 20h8M12 16v4M7 9h10"/>'),loja:icon('<path d="M3 9l1-5h16l1 5M3 9a3 3 0 006 0 3 3 0 006 0 3 3 0 006 0M5 21V12M19 21V12M3 21h18"/>')};
+const NAV=[["dashboard","Dashboard","dash"],["produtos","Produtos","prod"],["categorias","Categorias","cat"],["estoque","Estoque","est"],["vendas","Venda presencial","pdv"],["pedidos","Pedidos","ped"],["loja","Personalizar loja","loja"]];
 
 /* ---------- estado ---------- */
 const S={products:[],colors:[],cats:[],settings:{},pendingOrders:0};
@@ -163,27 +163,76 @@ function pwModal(){
 const head=(t,sub,acts="")=>`<div class="top"><div><span class="eyebrow">${esc(sub)}</span><h1>${esc(t)}</h1></div><div class="acts">${acts}</div></div>`;
 
 /* ---------- Dashboard ---------- */
+const PAY={pix:"PIX",card:"Cartão",cash:"Dinheiro"},SRC={site:"Loja online (WhatsApp)",presencial:"Presencial"};
+const hrow=(label,val,max,txt)=>`<div class="hbar"><span>${esc(label)}</span><div class="tr"><i style="width:${max?Math.round(val/max*100):0}%"></i></div><b style="min-width:84px">${txt}</b></div>`;
 async function viewDash(m){
-  const d=await rpc("admin_dashboard");const sales=d.sales,low=d.low_stock,ord=d.orders;
+  const d=await rpc("admin_dashboard");const sales=d.sales,low=d.low_stock,ord=d.orders,pend=d.pending||{orders:0,value:0};
   const bs=ord.by_status||{};const maxS=Math.max(1,...Object.values(bs));
   const daily=d.daily||[],maxD=Math.max(1,...daily.map(x=>+x.revenue));
-  m.innerHTML=head("Dashboard","Visão geral",`<button class="btn line" id="rf">Atualizar</button>`)+`
+  const pay=d.by_payment||[],src=d.by_source||[],maxP=Math.max(1,...pay.map(x=>+x.revenue)),maxR=Math.max(1,...src.map(x=>+x.revenue));
+  const td=d.today||{orders:0,revenue:0},mo=d.month||{orders:0,revenue:0};
+  m.innerHTML=head("Dashboard","Visão geral",`<a class="btn" href="#/vendas">+ Venda presencial</a><button class="btn line" id="rf">Atualizar</button>`)+`
   <div class="kpis">
-   <div class="kpi"><div class="l">Produtos cadastrados</div><div class="v">${d.products.total}</div><div class="s">${d.products.active} ativos · ${d.products.inactive} inativos</div></div>
-   <div class="kpi${low.products||low.out?" alert":""}"><div class="l">Estoque baixo</div><div class="v">${low.products}</div><div class="s">${low.out} variação(ões) esgotada(s) · alerta em ≤ ${low.threshold}</div></div>
-   <div class="kpi"><div class="l">Pedidos registrados</div><div class="v">${ord.total}</div><div class="s">${bs.aguardando||0} aguardando atendimento</div></div>
-   <div class="kpi"><div class="l">Faturamento confirmado</div><div class="v">${brl(sales.revenue)}</div><div class="s">${sales.orders} venda(s) · ticket médio ${brl(sales.avg_ticket)}</div></div></div>
-  <p class="note info">Pedidos enviados ao WhatsApp só viram <b>venda</b> (e baixam o estoque) quando você muda o status para <b>Confirmado</b> em Pedidos.</p>
+   <div class="kpi"><div class="l">Faturamento total</div><div class="v">${brl(sales.revenue)}</div><div class="s">${sales.orders} venda(s) · ticket médio ${brl(sales.avg_ticket)}</div></div>
+   <div class="kpi"><div class="l">Faturamento do mês</div><div class="v">${brl(mo.revenue)}</div><div class="s">${mo.orders} venda(s) · hoje ${brl(td.revenue)} (${td.orders})</div></div>
+   <div class="kpi${pend.orders?" alert":""}"><div class="l">Pedidos pendentes</div><div class="v">${pend.orders}</div><div class="s">${pend.orders?`${brl(pend.value)} aguardando atendimento · `:""}<a class="link" href="#/pedidos" data-pend>ver</a></div></div>
+   <div class="kpi${low.products||low.out?" alert":""}"><div class="l">Estoque baixo</div><div class="v">${low.products}</div><div class="s">${low.out} variação(ões) esgotada(s) · alerta em ≤ ${low.threshold}</div></div></div>
+  <p class="note info">Pedidos enviados ao WhatsApp só viram <b>venda</b> (e baixam o estoque) quando você muda o status para <b>Confirmado</b>. Vendas presenciais já entram confirmadas, com baixa imediata.</p>
   <div class="grid2"><div>
-   <div class="card"><div class="ch"><div><h2>Faturamento confirmado — 30 dias</h2><p>${sales.orders?"Pelo dia da confirmação.":"Ainda não há vendas confirmadas."}</p></div></div>
+   <div class="card"><div class="ch"><div><h2>Faturamento — últimos 30 dias</h2><p>${sales.orders?"Pelo dia da confirmação (vendas e pedidos confirmados).":"Ainda não há vendas confirmadas."}</p></div></div>
     <div class="bars" role="img" aria-label="Faturamento diário dos últimos 30 dias">${daily.map(x=>`<div class="b${+x.revenue?"":" z"}" tabindex="0" style="height:${Math.max(2,Math.round(+x.revenue/maxD*100))}%"><span class="tip">${x.day.slice(8)}/${x.day.slice(5,7)} · ${brl(x.revenue)} · ${x.orders} venda(s)</span></div>`).join("")}</div>
     <div class="axis"><span>${daily.length?daily[0].day.slice(8)+"/"+daily[0].day.slice(5,7):""}</span><span>hoje</span></div></div>
    <div class="card"><div class="ch"><h2>Produtos mais vendidos</h2></div>${(d.top||[]).length?`<table class="t cards"><thead><tr><th>Produto</th><th class="r">Unidades</th><th class="r">Receita</th></tr></thead><tbody>${d.top.map(t=>`<tr><td data-l="Produto" class="nm">${esc(t.name)}</td><td data-l="Unidades" class="r">${t.units}</td><td data-l="Receita" class="r">${brl(t.revenue)}</td></tr>`).join("")}</tbody></table>`:`<p class="empty">Os mais vendidos aparecem aqui após as primeiras vendas confirmadas.</p>`}</div>
   </div><div>
-   <div class="card"><div class="ch"><h2>Pedidos por status</h2><a class="link" href="#/pedidos">Ver pedidos</a></div>${Object.keys(ST).map(k=>`<div class="hbar"><span>${ST[k][0]}</span><div class="tr"><i style="width:${(bs[k]||0)/maxS*100}%"></i></div><b>${bs[k]||0}</b></div>`).join("")}</div>
+   <div class="card"><div class="ch"><h2>Pedidos por status</h2><a class="link" href="#/pedidos">Ver pedidos</a></div>${Object.keys(ST).map(k=>hrow(ST[k][0],bs[k]||0,maxS,bs[k]||0)).join("")}</div>
+   <div class="card"><div class="ch"><h2>Faturamento por pagamento</h2></div>${pay.length?pay.map(x=>hrow(PAY[x.method]||x.method,+x.revenue,maxP,brl(x.revenue))).join(""):`<p class="empty">Sem vendas ainda.</p>`}</div>
+   <div class="card"><div class="ch"><h2>Faturamento por origem</h2></div>${src.length?src.map(x=>hrow(SRC[x.source]||x.source,+x.revenue,maxR,brl(x.revenue))).join(""):`<p class="empty">Sem vendas ainda.</p>`}</div>
    <div class="card"><div class="ch"><h2>Alertas de estoque</h2><a class="link" href="#/estoque">Abrir estoque</a></div>${(low.items||[]).length?`<table class="t"><tbody>${low.items.map(i=>`<tr><td class="nm">${esc(i.name)}<div class="sku">${esc(i.color)} · ${esc(i.size)}</div></td><td class="r">${i.stock===0?`<span class="badge bad">Esgotado</span>`:`<span class="badge warn">${i.stock} un.</span>`}</td></tr>`).join("")}</tbody></table>`:`<p class="empty">Nenhum alerta. Estoque em dia.</p>`}</div>
   </div></div>`;
   $("#rf").onclick=()=>go();
+}
+
+/* ---------- Venda presencial (PDV) ---------- */
+const CART=[];let CART_PAY="pix";
+async function viewSales(m){
+  await loadProducts();
+  const th=lowTh(),pct=+S.settings.pix_percent||0;
+  const avail=()=>S.products.filter(p=>p.active).flatMap(p=>p.product_variants.filter(v=>v.active&&(!p.track_stock||v.stock>0)).map(v=>({p,v})));
+  const inCart=id=>CART.filter(c=>c.vid===id).reduce((a,c)=>a+c.qty,0);
+  const price=p=>+(p.promo_price??p.price);
+  const sub=()=>CART.reduce((a,c)=>a+c.price*c.qty,0);
+  const calc=()=>{const s=sub(),dsc=num($("#sd")?$("#sd").value:"")||0;const px=CART_PAY==="pix"?s-Math.round(s*(100-pct))/100:0;return{s,px:Math.round(px*100)/100,x:isFinite(dsc)?dsc:0}};
+  m.innerHTML=head("Venda presencial","Balcão da loja")+`<p class="note info">Registra uma venda feita na loja física: já entra como <b>entregue</b>, soma no faturamento e <b>baixa o estoque</b> na hora. Só aparecem peças ativas com estoque.</p>
+  <div class="grid2"><div class="card"><div class="ch"><h2>Escolher peças</h2></div><div class="tools"><input class="in grow" id="vq" type="search" placeholder="Buscar produto ou SKU…" aria-label="Buscar"></div><div class="tw" id="vlist"></div></div>
+  <div class="card" id="vcart"></div></div>`;
+  const drawList=()=>{const q=($("#vq").value||"").toLowerCase().trim();const l=avail().filter(({p})=>!q||(p.name+" "+p.sku).toLowerCase().includes(q));
+    const by=new Map();l.forEach(x=>{if(!by.has(x.p.id))by.set(x.p.id,[]);by.get(x.p.id).push(x)});
+    $("#vlist").innerHTML=by.size?[...by.values()].map(arr=>{const p=arr[0].p,im=p.product_images.find(i=>i.is_main)||p.product_images[0];
+      return `<div class="rep"><div style="display:flex;gap:12px;align-items:center;margin-bottom:8px"><img class="thumb" src="${esc(imgSrc(im&&im.url))}" alt=""><div><div class="nm">${esc(p.name)}</div><div class="sku">${esc(p.sku)} · ${brl(price(p))}</div></div></div><div class="chips">${arr.map(({v})=>{const left=p.track_stock?v.stock-inCart(v.id):99;return `<button type="button" class="chip" data-add="${v.id}" ${left<=0?"disabled":""} title="${p.track_stock?v.stock+" em estoque":"sem controle de estoque"}"><span class="sw" style="background:linear-gradient(135deg,${(S.colors.find(c=>c.id===v.color_id)||{}).hex1||"#ccc"},${(S.colors.find(c=>c.id===v.color_id)||{}).hex2||"#888"})"></span>${esc(colorName(v.color_id))} · ${esc(v.size)}${p.track_stock?` <small>(${left})</small>`:""}</button>`}).join("")}</div></div>`}).join(""):`<p class="empty">Nenhuma peça disponível${q?" para essa busca":""}.</p>`};
+  const drawCart=()=>{const t=calc();const total=Math.max(0,t.s-t.px-t.x);
+    $("#vcart").innerHTML=`<div class="ch"><h2>Venda atual</h2>${CART.length?`<button class="link bad" id="vclr">limpar</button>`:""}</div>
+    ${CART.length?`<table class="t"><tbody>${CART.map((c,i)=>`<tr><td class="nm">${esc(c.name)}<div class="sku">${esc(c.color)} · ${esc(c.size)} · ${brl(c.price)}</div></td><td class="r" style="white-space:nowrap"><button class="btn line sm" data-q="${i}" data-d="-1" aria-label="Menos">−</button> <b>${c.qty}</b> <button class="btn line sm" data-q="${i}" data-d="1" aria-label="Mais">+</button></td><td class="r">${brl(c.price*c.qty)}</td></tr>`).join("")}</tbody></table>`:`<p class="empty">Toque numa cor/tamanho para adicionar.</p>`}
+    <div class="fld" style="margin-top:14px"><span class="lbl">Pagamento</span><div class="chips">${Object.keys(PAY).map(k=>`<button type="button" class="chip${CART_PAY===k?" on":""}" data-pay="${k}">${PAY[k]}</button>`).join("")}</div>${CART_PAY==="pix"&&pct?`<span class="hint">Desconto PIX de ${pct}% aplicado automaticamente.</span>`:""}</div>
+    <div class="row c2"><div class="fld"><label for="sd">Desconto extra (R$)</label><input class="in" id="sd" inputmode="decimal" placeholder="0,00" value="${esc($("#sd")?$("#sd").value:"")}"></div><div class="fld"><label for="sn">Cliente (opcional)</label><input class="in" id="sn" maxlength="120" value="${esc($("#sn")?$("#sn").value:"")}"></div></div>
+    <div class="fld"><label for="sp">Telefone (opcional)</label><input class="in" id="sp" maxlength="30" inputmode="tel" value="${esc($("#sp")?$("#sp").value:"")}"></div>
+    <div style="text-align:right;font-size:13px;margin:6px 0 14px">Subtotal: <b>${brl(t.s)}</b><br>${t.px>0?`Desconto PIX: <b>−${brl(t.px)}</b><br>`:""}${t.x>0?`Desconto extra: <b>−${brl(t.x)}</b><br>`:""}<span style="font-size:20px">Total: <b id="vtot">${brl(total)}</b></span></div>
+    <button class="btn" style="width:100%" id="vfin" ${CART.length?"":"disabled"}>Finalizar venda</button>`};
+  // preserva campos ao redesenhar
+  const keep=()=>({d:($("#sd")||{}).value||"",n:($("#sn")||{}).value||"",p:($("#sp")||{}).value||""});
+  const redraw=()=>{const k=keep();drawCart();if($("#sd")){$("#sd").value=k.d;$("#sn").value=k.n;$("#sp").value=k.p}drawList()};
+  m.addEventListener("input",e=>{if(e.target.id==="vq")drawList();else if(e.target.id==="sd"){const t=calc();$("#vtot").textContent=brl(Math.max(0,t.s-t.px-t.x))}});
+  m.addEventListener("click",async e=>{const t=e.target;let k;
+    if((k=t.closest("[data-add]"))){const vid=k.dataset.add,x=avail().find(y=>y.v.id===vid);if(!x)return;
+      if(x.p.track_stock&&inCart(vid)>=x.v.stock){toast("Sem mais estoque desta variação","bad");return}
+      const ex=CART.find(c=>c.vid===vid);if(ex)ex.qty++;else CART.push({vid,name:x.p.name,color:colorName(x.v.color_id),size:x.v.size,price:price(x.p),qty:1,track:x.p.track_stock,stock:x.v.stock});redraw();return}
+    if((k=t.closest("[data-q]"))){const c=CART[+k.dataset.q],dl=+k.dataset.d;if(dl>0&&c.track&&c.qty>=c.stock){toast("Sem mais estoque desta variação","bad");return}c.qty=Math.min(99,c.qty+dl);if(c.qty<1)CART.splice(+k.dataset.q,1);redraw();return}
+    if((k=t.closest("[data-pay]"))){CART_PAY=k.dataset.pay;redraw();return}
+    if(t.id==="vclr"){CART.length=0;redraw();return}
+    if(t.id==="vfin")busy(t,async()=>{const dsc=num($("#sd").value);if(isNaN(dsc)||(dsc||0)<0)throw new Error("Desconto extra inválido");
+      const tot=calc();if(!(await confirmBox("Finalizar venda",`Confirmar venda de <b>${CART.reduce((a,c)=>a+c.qty,0)}</b> peça(s) — total <b>${brl(Math.max(0,tot.s-tot.px-(dsc||0)))}</b> no <b>${PAY[CART_PAY]}</b>? O estoque será baixado agora.`,"Finalizar")))return;
+      const r=await rpc("admin_create_sale",{p_items:CART.map(c=>({variant_id:c.vid,qty:c.qty})),p_payment:CART_PAY,p_customer:{name:$("#sn").value.trim(),phone:$("#sp").value.trim()},p_discount:dsc||0});
+      CART.length=0;toast(`Venda #${r.number} registrada — ${brl(r.total)}`,"ok");await loadProducts();$("#sd").value="";$("#sn").value="";$("#sp").value="";redraw()})});
+  drawList();drawCart();
 }
 
 /* ---------- campo de imagem ---------- */
@@ -355,7 +404,7 @@ async function viewOrders(m){
   const cnt=k=>orders.filter(o=>!k||o.status===k).length;
   const draw=()=>{const l=orders.filter(o=>(!OF.st||o.status===OF.st)&&(!OF.q||("#"+o.number+" "+(o.customer_name||"")+" "+(o.customer_phone||"")).toLowerCase().includes(OF.q)));
     $("#tabs").innerHTML=[["","Todos"],...Object.keys(ST).map(k=>[k,ST[k][0]])].map(([k,t])=>`<button class="chip${OF.st===k?" on":""}" data-st="${k}">${t} (${cnt(k)})</button>`).join("");
-    $("#olist").innerHTML=l.length?`<table class="t cards"><thead><tr><th>Pedido</th><th>Data</th><th>Cliente</th><th>Itens</th><th>Pagamento</th><th class="r">Total</th><th>Status</th><th></th></tr></thead><tbody>${l.map(o=>`<tr><td data-l="Pedido" class="nm">#${o.number}</td><td data-l="Data">${fdate(o.created_at)}</td><td data-l="Cliente">${esc(o.customer_name||"—")}</td><td data-l="Itens">${o.order_items.reduce((a,i)=>a+i.qty,0)}</td><td data-l="Pagamento">${o.payment_method==="pix"?"PIX":"Cartão"}</td><td data-l="Total" class="r">${brl(o.total)}</td><td data-l="Status">${stBadge(o.status)}</td><td class="noL"><button class="btn line sm" data-o="${o.id}">Abrir</button></td></tr>`).join("")}</tbody></table>`:`<p class="empty">${orders.length?"Nenhum pedido com esses filtros.":"Nenhum pedido registrado ainda. Eles aparecem aqui quando um cliente toca em “Finalizar pelo WhatsApp”."}</p>`};
+    $("#olist").innerHTML=l.length?`<table class="t cards"><thead><tr><th>Pedido</th><th>Data</th><th>Cliente</th><th>Itens</th><th>Pagamento</th><th class="r">Total</th><th>Status</th><th></th></tr></thead><tbody>${l.map(o=>`<tr><td data-l="Pedido" class="nm">#${o.number}</td><td data-l="Data">${fdate(o.created_at)}</td><td data-l="Cliente">${esc(o.customer_name||"—")}</td><td data-l="Itens">${o.order_items.reduce((a,i)=>a+i.qty,0)}</td><td data-l="Pagamento">${PAY[o.payment_method]||o.payment_method}${o.source==="presencial"?` <span class="badge">Presencial</span>`:""}</td><td data-l="Total" class="r">${brl(o.total)}</td><td data-l="Status">${stBadge(o.status)}</td><td class="noL"><button class="btn line sm" data-o="${o.id}">Abrir</button></td></tr>`).join("")}</tbody></table>`:`<p class="empty">${orders.length?"Nenhum pedido com esses filtros.":"Nenhum pedido registrado ainda. Eles aparecem aqui quando um cliente toca em “Finalizar pelo WhatsApp”."}</p>`};
   m.innerHTML=head("Pedidos","Vendas",`<button class="btn line" id="orf">Atualizar</button>`)+`<p class="note info">Pedido registrado = cliente abriu o WhatsApp. Só vira <b>venda</b> quando você marca <b>Confirmado</b>.</p><div class="card"><div class="tabs" id="tabs"></div><div class="tools"><input class="in grow" id="oq" type="search" placeholder="Buscar por nº, nome ou telefone…" value="${esc(OF.q)}"></div><div class="tw" id="olist"></div></div>`;
   $("#orf").onclick=()=>viewOrders(m);$("#oq").oninput=e=>{OF.q=e.target.value.toLowerCase().trim().replace(/^#/,"#");draw()};
   m.onclick=e=>{const s=e.target.closest("[data-st]");if(s){OF.st=s.dataset.st;draw();return}const o=e.target.closest("[data-o]");if(o)orderModal(orders.find(x=>x.id===o.dataset.o),()=>viewOrders(m))};
@@ -365,7 +414,7 @@ function orderModal(o,after){
   const sub=o.order_items.map(i=>`<tr><td><div class="nm">${esc(i.product_name)}</div><div class="sku">${esc(i.sku||"")} · ${esc(i.color)} · ${esc(i.size)}</div></td><td class="r">${i.qty}</td><td class="r">${brl(i.unit_price)}</td><td class="r">${brl(i.line_total)}</td></tr>`).join("");
   const mm=modal({title:`Pedido #${o.number}`,wide:true,body:`<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px">${stBadge(o.status)}<span class="muted small">Registrado em ${fdate(o.created_at)}</span>${o.stock_deducted?`<span class="badge ok">Estoque baixado</span>`:`<span class="badge">Estoque não baixado</span>`}</div>
   <div class="tw"><table class="t"><thead><tr><th>Item</th><th class="r">Qtd</th><th class="r">Unit.</th><th class="r">Subtotal</th></tr></thead><tbody>${sub}</tbody></table></div>
-  <div style="text-align:right;margin:12px 0;font-size:13px">Subtotal: <b>${brl(o.subtotal)}</b><br>${+o.discount>0?`Desconto PIX: <b>−${brl(o.discount)}</b><br>`:""}Pagamento: <b>${o.payment_method==="pix"?"PIX":"Cartão"}</b><br><span style="font-size:18px">Total: <b>${brl(o.total)}</b></span></div>
+  <div style="text-align:right;margin:12px 0;font-size:13px">Subtotal: <b>${brl(o.subtotal)}</b><br>${+o.discount>0?`Descontos: <b>−${brl(o.discount)}</b><br>`:""}Pagamento: <b>${PAY[o.payment_method]||o.payment_method}</b>${o.source==="presencial"?" · <b>Venda presencial</b>":""}<br><span style="font-size:18px">Total: <b>${brl(o.total)}</b></span></div>
   ${o.customer_name||o.customer_phone||o.customer_note?`<div class="sec"><h3>Dados do cliente</h3><p style="margin:0">${esc(o.customer_name||"—")}${o.customer_phone?` · ${esc(o.customer_phone)}`:""}</p>${o.customer_note?`<p class="muted" style="margin:6px 0 0">“${esc(o.customer_note)}”</p>`:""}</div>`:""}
   <div class="sec"><h3>Atualizar status</h3><div class="chips" id="sts">${Object.keys(ST).map(k=>`<button class="chip${o.status===k?" on":""}" data-s="${k}">${ST[k][0]}</button>`).join("")}</div><p class="hint" style="margin-top:8px">Confirmado, Preparando e Entregue baixam o estoque (uma única vez). Cancelar um pedido já confirmado devolve o estoque.</p></div>
   <div class="sec"><h3>Observação interna</h3><textarea class="in" id="an" maxlength="1000">${esc(o.admin_note||"")}</textarea></div>`,foot:`<button class="btn line" data-x>Fechar</button><button class="btn" id="asv">Salvar observação</button>`});
@@ -439,7 +488,7 @@ async function viewStore(m){
   });
 }
 
-const VIEWS={dashboard:viewDash,produtos:viewProducts,categorias:viewCats,estoque:viewStock,pedidos:viewOrders,loja:viewStore};
+const VIEWS={dashboard:viewDash,vendas:viewSales,produtos:viewProducts,categorias:viewCats,estoque:viewStock,pedidos:viewOrders,loja:viewStore};
 setInterval(()=>{if(session&&!document.hidden&&$(".shell"))refreshPending()},60000);
 go();
 })();
